@@ -1,6 +1,6 @@
 package com.wei.starter.push.common;
 
-import com.wei.push.impl.DefaultPushService;
+import com.wei.starter.push.impl.DefaultPushService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;

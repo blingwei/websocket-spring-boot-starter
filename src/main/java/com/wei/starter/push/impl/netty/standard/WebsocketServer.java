@@ -1,7 +1,10 @@
 package com.wei.starter.push.impl.netty.standard;
 
-import com.wei.push.impl.netty.standard.stomp.StompVersion;
-import com.wei.push.impl.netty.standard.stomp.StompWebSocketProtocolDecoder;
+import com.wei.starter.push.PushService;
+import com.wei.starter.push.configure.WebsocketServerProperties;
+import com.wei.starter.push.impl.netty.NettyPushServiceImpl;
+import com.wei.starter.push.impl.netty.standard.stomp.StompEndpointServer;
+import com.wei.starter.push.impl.netty.standard.stomp.StompVersion;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
@@ -17,37 +20,31 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.SmartInitializingSingleton;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
-import javax.annotation.Resource;
 
 /**
  * @Author lw
  * @Date 2022/1/19  下午4:53
  * @Version 1.0
  */
-@Component
 @Slf4j
 public class WebsocketServer implements SmartInitializingSingleton {
 
 
-    @Resource
-    private StompWebSocketProtocolDecoder stompWebSocketProtocolDecoder;
+    private PushService pushService;
 
-    @Value("${ws.port:8424}")
-    private Integer port;
+    public WebsocketServer(PushService pushService){
+        this.pushService = pushService;
+    }
 
-    private static WebsocketServerConfig config;
+    private static WebsocketServerProperties properties;
 
-    public void init(WebsocketServerConfig websocketServerConfig) {
-        config = websocketServerConfig;
+    public void init(WebsocketServerProperties WebsocketServerProperties) {
+        properties = WebsocketServerProperties;
     }
 
     public void start() {
-        init(new WebsocketServerConfig(port));
-        EventLoopGroup boss = new NioEventLoopGroup(config.getBossLoopGroupThreads());
-        EventLoopGroup worker = new NioEventLoopGroup(config.getWorkerLoopGroupThreads());
+        EventLoopGroup boss = new NioEventLoopGroup(properties.getBossLoopGroupThreads());
+        EventLoopGroup worker = new NioEventLoopGroup(properties.getWorkerLoopGroupThreads());
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(boss, worker)
                 .channel(NioServerSocketChannel.class)
@@ -65,15 +62,19 @@ public class WebsocketServer implements SmartInitializingSingleton {
                         pipeline.addLast(new HttpObjectAggregator(64 * 1024));
                         pipeline.addLast(new WebSocketServerProtocolHandler("/websocket/hop-internet-hospital",
                                 StompVersion.SUB_PROTOCOLS));
-                        //解析stomp协议
-                        pipeline.addLast(stompWebSocketProtocolDecoder);
+                        EndpointServer endpointServer = new WebSocketEndpointServer(pushService);
+                        if(properties.isStompProtocol()){
+                            endpointServer = new StompEndpointServer(pushService);
+                        }
+                        //添加处理器
+                        pipeline.addLast(new ServerHandler(endpointServer));
                     }
                 });
-        bootstrap.bind(config.getPort()).addListener(future -> {
+        bootstrap.bind(properties.getPort()).addListener(future -> {
             if (!future.isSuccess()) {
                 future.cause().printStackTrace();
             }
-            log.info("websocket启动成功：" + config.getHost() + ":" + config.getPort());
+            log.info("websocket启动成功：" + properties.getHost() + ":" + properties.getPort());
         });
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             boss.shutdownGracefully().syncUninterruptibly();

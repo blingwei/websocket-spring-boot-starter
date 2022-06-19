@@ -1,9 +1,10 @@
 package com.wei.starter.push;
 
-import com.wei.push.bo.Message;
+import com.wei.starter.push.bo.Message;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 推送服务
@@ -119,4 +120,9 @@ public interface PushService {
      * @return
      */
     boolean sendToUserFromThisServer(String userId, List<Message> messages);
+
+    boolean loginUser(String userId, Long timeout, TimeUnit unit);
+
+    boolean logoutUser(String userId);
+
 }

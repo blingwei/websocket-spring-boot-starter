@@ -1,10 +1,10 @@
 package com.wei.starter.push.impl;
 
 import cn.hutool.json.JSONUtil;
-import com.wei.push.PushService;
-import com.wei.push.bo.ClusterMessage;
-import com.wei.push.bo.Message;
-import com.wei.push.common.Constants;
+import com.wei.starter.push.PushService;
+import com.wei.starter.push.bo.ClusterMessage;
+import com.wei.starter.push.bo.Message;
+import com.wei.starter.push.common.Constants;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -183,6 +183,18 @@ public abstract class DefaultPushService implements PushService, MessageListener
             sendToUserFromThisServer(userId, message);
         }
         return true;
+    }
+
+    @Override
+    public boolean loginUser(String userId, Long timeout, TimeUnit unit) {
+        stringRedisTemplate.opsForValue()
+                .set(userId, "1", timeout, unit);
+        return true;
+    }
+
+    @Override
+    public boolean logoutUser(String userId) {
+        return stringRedisTemplate.delete(userId);
     }
 
     private boolean checkUserConnectedToCluster(String userId) {

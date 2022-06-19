@@ -1,7 +1,7 @@
 package com.wei.starter.push.impl.netty.standard.stomp;
 
 import io.netty.util.AttributeKey;
-import io.netty.util.internal.StringUtil;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +25,7 @@ public enum StompVersion {
             subProtocols.add(stompVersion.subProtocol);
         }
 
-        SUB_PROTOCOLS = StringUtil.join(",", subProtocols).toString();
+        SUB_PROTOCOLS = StringUtils.joinWith(",", subProtocols);
     }
 
     private final String version;
@@ -34,14 +34,6 @@ public enum StompVersion {
     StompVersion(String version, String subProtocol) {
         this.version = version;
         this.subProtocol = subProtocol;
-    }
-
-    public String version() {
-        return version;
-    }
-
-    public String subProtocol() {
-        return subProtocol;
     }
 
     public static StompVersion findBySubProtocol(String subProtocol) {
@@ -53,5 +45,13 @@ public enum StompVersion {
             }
         }
         return STOMP_V11;
+    }
+
+    public String version() {
+        return version;
+    }
+
+    public String subProtocol() {
+        return subProtocol;
     }
 }

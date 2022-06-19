@@ -1,10 +1,5 @@
 package com.wei.starter.push.impl.netty.standard.stomp;
 
-import com.wei.push.PushService;
-import com.wei.push.bo.Message;
-import com.wei.push.common.Constants;
-import com.wei.push.impl.netty.standard.ChannelManager;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
@@ -15,10 +10,7 @@ import io.netty.handler.codec.stomp.StompCommand;
 import io.netty.handler.codec.stomp.StompFrame;
 import io.netty.util.AttributeKey;
 import io.netty.util.CharsetUtil;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.stereotype.Component;
 
-import javax.annotation.Resource;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map.Entry;
@@ -26,24 +18,52 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
 
 import static io.netty.handler.codec.stomp.StompHeaders.*;
 
+/**
+ * 继承SimpleChannelInboundHandler类读到数据后会把资源释放
+ */
 @Sharable
-@Component
 public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
 
+    public static final AttributeKey<Set<StompSubscription>> DESTINATIONS = AttributeKey.valueOf("dest");
     private final ConcurrentMap<String, Set<StompSubscription>> chatDestinations =
             new ConcurrentHashMap<String, Set<StompSubscription>>();
+    private final StompEndpointServer stompEndpointServer;
 
-    public static final AttributeKey<Set<StompSubscription>> DESTINATIONS = AttributeKey.valueOf("dest");
+    public StompChatHandler(StompEndpointServer stompEndpointServer) {
+        this.stompEndpointServer = stompEndpointServer;
+    }
 
-    @Resource
-    private PushService pushService;
+    private static void onDisconnect(ChannelHandlerContext ctx, StompFrame inboundFrame) {
+        String receiptId = inboundFrame.headers().getAsString(RECEIPT);
+        if (receiptId == null) {
+            ctx.close();
+            return;
+        }
+        StompFrame receiptFrame = new DefaultStompFrame(StompCommand.RECEIPT);
+        receiptFrame.headers().set(RECEIPT_ID, receiptId);
+        ctx.writeAndFlush(receiptFrame).addListener(ChannelFutureListener.CLOSE);
+    }
 
-    @Resource
-    private RedisTemplate<String, Object> stringRedisTemplate;
+    /**
+     * 发送完error帧后要关闭连接
+     *
+     * @param message
+     * @param description
+     * @param ctx
+     */
+    private static void sendErrorFrame(String message, String description, ChannelHandlerContext ctx) {
+        StompFrame errorFrame = new DefaultStompFrame(StompCommand.ERROR);
+        errorFrame.headers().set(MESSAGE, message);
+
+        if (description != null) {
+            errorFrame.content().writeCharSequence(description, CharsetUtil.UTF_8);
+        }
+
+        ctx.writeAndFlush(errorFrame).addListener(ChannelFutureListener.CLOSE);
+    }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, StompFrame inboundFrame) throws Exception {
@@ -79,7 +99,6 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
         }
     }
 
-
     /**
      * 确认这个消息已经被客户端消费了
      *
@@ -93,8 +112,6 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
             sendErrorFrame("missed header", "Required  'id' || 'subscriptionId' header missed", ctx);
             return;
         }
-        Message message = new Message();
-        message.setSeq(msgId);
         String dest = "";
         for (Entry<String, Set<StompSubscription>> entry : chatDestinations.entrySet()) {
             for (StompSubscription subscription : entry.getValue()) {
@@ -103,7 +120,7 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
                 }
             }
         }
-        pushService.delMsgForSupplement(ctx.channel().attr(ChannelManager.USER_ID).get(), dest, message);
+        stompEndpointServer.doOnAck(ctx.channel(), dest, msgId);
     }
 
     private void onSubscribe(ChannelHandlerContext ctx, StompFrame inboundFrame) {
@@ -136,15 +153,8 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
                 .orElse(new HashSet<>());
         destList.add(subscription);
         ctx.channel().attr(DESTINATIONS).set(destList);
-
-        //补发离线消息
-        pushService.pushSupplementMsg(loginUserId, destination);
-        ctx.channel().closeFuture().addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                chatDestinations.get(subscription.destination()).remove(subscription);
-            }
-        });
+        stompEndpointServer.doOnOpen(ctx.channel(), loginUserId, destination);
+        ctx.channel().closeFuture().addListener((ChannelFutureListener) future -> chatDestinations.get(subscription.destination()).remove(subscription));
         String receiptId = inboundFrame.headers().getAsString(RECEIPT);
         if (receiptId != null) {
             StompFrame receiptFrame = new DefaultStompFrame(StompCommand.RECEIPT);
@@ -191,28 +201,12 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
     private void onConnect(ChannelHandlerContext ctx, StompFrame inboundFrame) {
         String acceptVersions = inboundFrame.headers().getAsString(ACCEPT_VERSION);
         String loginUserId = inboundFrame.headers().getAsString(LOGIN);
-        //@todo 用户校验
         StompVersion handshakeAcceptVersion = ctx.channel().attr(StompVersion.CHANNEL_ATTRIBUTE_KEY).get();
         if (acceptVersions == null || !acceptVersions.contains(handshakeAcceptVersion.version())) {
             sendErrorFrame("invalid version",
                     "Received invalid version, expected " + handshakeAcceptVersion.version(), ctx);
             return;
         }
-        //加入队列
-        ChannelManager.addChannel(loginUserId, ctx.channel());
-        //给连接设置userId
-        ctx.channel().attr(ChannelManager.USER_ID).set(loginUserId);
-        stringRedisTemplate.opsForValue()
-                .set(Constants.WS_CLUSTER_USER_ID + loginUserId, "1", Constants.WS_SESSION_EXPIRE_MINUTES,
-                        TimeUnit.MINUTES);
-        //连接关闭时的兜底操作
-        ctx.channel().closeFuture().addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
-                stringRedisTemplate.delete(Constants.WS_CLUSTER_USER_ID + loginUserId);
-                ChannelManager.removeChannel(loginUserId);
-            }
-        });
         //回复一个CONNECTED帧
         StompFrame connectedFrame = new DefaultStompFrame(StompCommand.CONNECTED);
         connectedFrame.headers()
@@ -220,34 +214,5 @@ public class StompChatHandler extends SimpleChannelInboundHandler<StompFrame> {
                 .set(SERVER, "Netty-Server")
                 .set(HEART_BEAT, "0,10000");
         ctx.writeAndFlush(connectedFrame);
-    }
-
-    private static void onDisconnect(ChannelHandlerContext ctx, StompFrame inboundFrame) {
-        String receiptId = inboundFrame.headers().getAsString(RECEIPT);
-        if (receiptId == null) {
-            ctx.close();
-            return;
-        }
-        StompFrame receiptFrame = new DefaultStompFrame(StompCommand.RECEIPT);
-        receiptFrame.headers().set(RECEIPT_ID, receiptId);
-        ctx.writeAndFlush(receiptFrame).addListener(ChannelFutureListener.CLOSE);
-    }
-
-    /**
-     * 发送完error帧后要关闭连接
-     *
-     * @param message
-     * @param description
-     * @param ctx
-     */
-    private static void sendErrorFrame(String message, String description, ChannelHandlerContext ctx) {
-        StompFrame errorFrame = new DefaultStompFrame(StompCommand.ERROR);
-        errorFrame.headers().set(MESSAGE, message);
-
-        if (description != null) {
-            errorFrame.content().writeCharSequence(description, CharsetUtil.UTF_8);
-        }
-
-        ctx.writeAndFlush(errorFrame).addListener(ChannelFutureListener.CLOSE);
     }
 }

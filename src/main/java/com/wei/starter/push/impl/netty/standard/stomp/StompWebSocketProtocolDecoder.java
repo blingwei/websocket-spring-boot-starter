@@ -19,12 +19,13 @@ import java.util.List;
  * @author blingweiwei
  */
 @Sharable
-@Component
 public class StompWebSocketProtocolDecoder extends MessageToMessageDecoder<WebSocketFrame> {
 
-    @Resource
-    private StompChatHandler stompChatHandler;
+    private final StompChatHandler stompChatHandler;
 
+    public StompWebSocketProtocolDecoder(StompChatHandler stompChatHandler) {
+        this.stompChatHandler = stompChatHandler;
+    }
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
         //成功握手后的操作
@@ -39,12 +40,6 @@ public class StompWebSocketProtocolDecoder extends MessageToMessageDecoder<WebSo
         } else {
             super.userEventTriggered(ctx, evt);
         }
-    }
-
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        cause.printStackTrace();
-        super.exceptionCaught(ctx, cause);
     }
 
     @Override
