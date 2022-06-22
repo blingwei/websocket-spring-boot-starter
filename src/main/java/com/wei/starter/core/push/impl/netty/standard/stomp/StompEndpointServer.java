@@ -9,6 +9,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.websocketx.*;
 import io.netty.handler.codec.stomp.StompSubframeAggregator;
 import io.netty.handler.codec.stomp.StompSubframeDecoder;
+import io.netty.handler.codec.stomp.StompSubframeEncoder;
 
 public class StompEndpointServer extends EndpointServer {
 
@@ -23,6 +24,7 @@ public class StompEndpointServer extends EndpointServer {
         StompVersion stompVersion = StompVersion.findBySubProtocol(handshakeComplete.selectedSubprotocol());
         ctx.channel().attr(StompVersion.CHANNEL_ATTRIBUTE_KEY).set(stompVersion);
         ctx.pipeline()
+                .addLast(new StompWebSocketProtocolDecoder())
                 .addLast(new WebSocketFrameAggregator(65536))
                 .addLast(new StompSubframeDecoder()).addLast(new StompWebSocketFrameEncoder())
                 .addLast(new StompSubframeAggregator(65536))
