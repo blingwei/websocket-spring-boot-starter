@@ -1,2 +1,2 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.wei.starter.push.configure.WebSocketConfiguration
+com.wei.starter.configure.WebSocketConfiguration
