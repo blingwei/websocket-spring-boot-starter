@@ -26,10 +26,10 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
  * @Version 1.0
  */
 @Slf4j
-public class WebsocketServer implements SmartInitializingSingleton {
+public class WebsocketServer{
 
 
-    private PushService pushService;
+    private final PushService pushService;
 
     public WebsocketServer(PushService pushService){
         this.pushService = pushService;
@@ -79,10 +79,5 @@ public class WebsocketServer implements SmartInitializingSingleton {
             boss.shutdownGracefully().syncUninterruptibly();
             worker.shutdownGracefully().syncUninterruptibly();
         }));
-    }
-
-    @Override
-    public void afterSingletonsInstantiated() {
-        start();
     }
 }
